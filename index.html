@@ -98,19 +98,27 @@ input[type="text"], select{width:100%; padding:10px 12px; border-radius:10px; bo
 .client-modal__panel{
   position:relative; margin:10vh auto; width:min(92vw, 520px); max-height:min(78vh, 680px);
   display:flex; flex-direction:column; border:1px solid var(--stroke); border-radius:14px;
-  background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), var(--panel);
-  box-shadow:0 24px 48px rgba(0,0,0,45);
+  background:linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)), var(--panel);
+  box-shadow:0 24px 48px rgba(0,0,0,0.45);
+  overflow:hidden; /* mantém header/rodapé visíveis e o scroll só no corpo */
 }
 .client-modal__head{
   display:flex; align-items:center; justify-content:space-between; gap:10px;
   padding:12px 14px; border-bottom:1px solid var(--stroke); font-weight:800; letter-spacing:.2px;
 }
-.client-modal__body{ padding:12px; display:grid; gap:10px; }
+.client-modal__body{
+  padding:12px;
+  display:flex; flex-direction:column; gap:10px;
+  min-height:0; flex:1; overflow:hidden; /* habilita scroll interno sem empurrar o rodapé */
+}
 .client-modal__search{ height:var(--field-h); border:1px solid var(--stroke); border-radius:10px; padding:0 10px; background:var(--panel-2); display:flex; align-items:center; }
-.client-modal__search input{ width:100%; height:calc(var(--field-h) - 10px); border:0; outline:0; background:transparent; color:var(--text); font:inherit; }
-.client-modal__list{ overflow:auto; border:1px solid var(--stroke); border-radius:12px; background:var(--panel-2); }
+.client-modal__search input{ width:100%; height:calc(var(--field-h) - 12px); line-height:calc(var(--field-h) - 12px); padding:0; border:0; outline:0; background:transparent; color:var(--text); font:inherit; }
+.client-modal__list{
+  flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain;
+  border:1px solid var(--stroke); border-radius:12px; background:var(--panel-2);
+}
 .client-modal__item{ width:100%; text-align:left; padding:10px 12px; border:0; background:transparent; color:var(--text); cursor:pointer; font-weight:700; display:block; }
-.client-modal__item:hover{ background:rgba(255,255,255,04); }
+.client-modal__item:hover{ background:rgba(255,255,255,0.04); }
 .client-modal__empty{ padding:14px; color:var(--muted); }
 .client-modal__foot{ padding:10px 14px; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--stroke); }
 
@@ -751,12 +759,26 @@ function parseUserId(uid){
 /* HTML para exibir a identificação; nome do cliente é preenchido depois */
 function userIdHTML(uid){
   const {cliente, usuario} = parseUserId(uid);
-  if (!cliente) return '';
+
+  // Códigos que devem ter destaque vermelho
+  const RED_ALERT = new Set(['000001','107030','817809','676364','820365','820362','820267','820268','820363','820364','820366']);
+
+  // Sem user_id → exibe "Cliente não identificado" (também na preview)
+  if (!cliente){
+    return `<div class="client-id" data-client-code="">
+              <span class="small-label">Cliente:</span>
+              <span class="client-code">Cliente não identificado</span>
+            </div>`;
+  }
+
   const usuarioTxt = usuario ? ` &bull; Usuário: ${escapeHtml(usuario)}` : '';
+  const isAlert = RED_ALERT.has(cliente) || RED_ALERT.has(normCode(cliente));
+  const style   = isAlert ? ' style="color:#ff6b6b; font-weight:900"' : '';
+
   /* client-name será preenchido pelo populateClientNames() */
   return `<div class="client-id" data-client-code="${escapeHtml(cliente)}">
             <span class="small-label">Cliente:</span>
-            <span class="client-code">${escapeHtml(cliente)}</span>
+            <span class="client-code"${style}>${escapeHtml(cliente)}</span>
             <span class="client-name"></span>${usuarioTxt}
           </div>`;
 }
@@ -795,9 +817,9 @@ async function populateClientNames(){
     const raw = el.getAttribute('data-client-code') || '';
     const code = normCode(raw);
     let name = map.get(raw) || map.get(code) || '';
-    if (INTERNAL_LICENSE_CODES && INTERNAL_LICENSE_CODES.has(code)) {
-      name = 'Licença Interna';
-    }
+if (code && INTERNAL_LICENSE_CODES && INTERNAL_LICENSE_CODES.has(code)) {
+  name = 'Licença Interna';
+}
     const nameEl = el.querySelector('.client-name');
     if (nameEl && name && !nameEl.dataset.filled){
       nameEl.textContent = ` — ${name}`;
@@ -1322,28 +1344,36 @@ function exportFull(rows){
 /* ===== Relatório — Conferência (por CLIENTE) ===== */
 async function exportConferencia(rows){
   const nameMap = await loadClientMap();
-  const agg = new Map(); // codeNorm -> {label,total,correta,falta,incorreta}
+  // Agora agregamos preservando código, nome e grupos distintos
+  const agg = new Map(); // codeNorm -> {code,name,label,groups:Set,total,correta,falta,incorreta}
   for (const r of rows){
     const raw  = parseUserId(r.user_id).cliente || '';
     const code = normCode(raw) || 'não identificado';
     const name = nameMap.get(code) || nameMap.get(raw) ||
                  (INTERNAL_LICENSE_CODES.has(code) ? 'Licença Interna' : '');
     const label = (code === 'não identificado') ? code : (name ? `${code} — ${name}` : code);
-    if (!agg.has(code)) agg.set(code, { label, total:0, correta:0, falta:0, incorreta:0 });
+
+    if (!agg.has(code)) agg.set(code, { code, name, label, groups:new Set(), total:0, correta:0, falta:0, incorreta:0 });
     const acc = agg.get(code);
+    acc.groups.add(groupLabelFromCode(r.codigo));
     acc.total += 1;
     if (r.classificacao === 'Correta') acc.correta += 1;
     else if (r.classificacao === 'Falta de Documentação') acc.falta += 1;
     else if (r.classificacao === 'Incorreta') acc.incorreta += 1;
   }
-  const header = ['cliente','total','corretas','falta_documentacao','incorretas'];
+
+  // Cabeçalho com colunas separadas + coluna de grupo(s)
+  const header = ['grupo','codigo_cliente','cliente','total','corretas','falta_documentacao','incorretas'];
   const csv = [ header.join(';') ];
+
   Array.from(agg.values())
     .sort((a,b)=> String(a.label).localeCompare(String(b.label),'pt-BR',{numeric:true}))
     .forEach(v=>{
-      const row = [v.label, v.total, v.correta, v.falta, v.incorreta];
+      const grupo = Array.from(v.groups).sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true})).join(', ');
+      const row = [grupo, v.code, v.name || '', v.total, v.correta, v.falta, v.incorreta];
       csv.push(row.map(x=>String(x).replace(/"/g,'""')).map(x=>`"${x}"`).join(';'));
     });
+
   download(`relatorio_conferencia.csv`, csv.join('\n'));
 }
 
@@ -1848,6 +1878,48 @@ function setDone(code, on){
       });
     }
   })();
+</script>
+<script>
+/* Override não intrusivo: mantém o mesmo nome chamado pelo botão */
+window.exportConferencia = async function(rows){
+  const nameMap = await loadClientMap();
+
+  // Agrega por cliente (código normalizado); coleta grupos vistos
+  const agg = new Map();
+  for (const r of rows){
+    const {cliente} = parseUserId(r.user_id || '');
+    const raw  = cliente || '';
+    const code = normCode(raw);
+    const grp  = groupLabelFromCode(r.codigo);
+    const key = raw ? (code || '') : `__anon__:${grp}`;
+
+    if (!agg.has(key)){
+      agg.set(key, { raw, code, total:0, corretas:0, falta_documentacao:0, incorretas:0, grupos:new Set() });
+    }
+    const o = agg.get(key);
+    o.total++;
+    if (r.classificacao === 'Correta') o.corretas++;
+    else if (r.classificacao === 'Falta de Documentação') o.falta_documentacao++;
+    else if (r.classificacao === 'Incorreta') o.incorretas++;
+    o.grupos.add(grp);
+  }
+
+  // Cabeçalho com "grupo" por último
+  const header = ['codigo_cliente','cliente','total','corretas','falta_documentacao','incorretas','grupo'];
+  const lines = [header.join(';')];
+
+  // Ordena por código e resolve nome; cliente ausente → "Cliente não identificado"
+  const out = Array.from(agg.values()).sort((a,b)=> String(a.code||'').localeCompare(String(b.code||'')));
+  for (const v of out){
+    let name = nameMap.get(v.raw) || nameMap.get(v.code) || '';
+    if (!v.raw) name = 'Cliente não identificado';
+    if (v.code && INTERNAL_LICENSE_CODES && INTERNAL_LICENSE_CODES.has(v.code)) name = 'Licença Interna';
+    const grupo = v.raw ? Array.from(v.grupos).sort().join(', ') : (Array.from(v.grupos)[0] || '');
+    lines.push([v.code, name, v.total, v.corretas, v.falta_documentacao, v.incorretas, grupo].join(';'));
+  }
+
+  download('relatorio_conferencia.csv', lines.join('\n'));
+};
 </script>
 </body>
 </html>
