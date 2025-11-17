@@ -38,7 +38,7 @@ body{
 
 /* Header */
 header{position:sticky; top:0; z-index:30; background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)), var(--panel); border-bottom:1px solid var(--stroke); box-shadow:var(--shadow);}
-.header-inner{max-width:1280px;margin:0 auto;padding:14px 18px; display:flex; align-items:center; gap:16px; justify-content:space-between;}
+.header-inner{max-width:min(1920px, 96vw);margin:0 auto;padding:14px 18px; display:flex; align-items:center; gap:16px; justify-content:space-between;}
 h1{font-size:18px;margin:0; letter-spacing:.3px}
 .header-actions{display:flex; gap:10px; align-items:center}
 .btn{
@@ -50,7 +50,7 @@ h1{font-size:18px;margin:0; letter-spacing:.3px}
 .btn.primary{border-color:#4362ff; background:linear-gradient(180deg, rgba(67,98,255,.25), rgba(67,98,255,.12));}
 
 /* Layout */
-.container{max-width:1920px; margin:18px auto; padding:0 18px; display:grid; grid-template-columns: 320px 1fr; gap:18px;}
+.container{max-width:min(1920px, 96vw); margin:18px auto; padding:0 18px; display:grid; grid-template-columns: 320px 1fr; gap:18px;}
 @media (max-width: 980px){ .container{grid-template-columns:1fr} }
 aside{position:sticky; top:76px; align-self:start; background:var(--panel); border:1px solid var(--stroke); border-radius:var(--radius); padding:14px; box-shadow:var(--shadow); max-height:calc(100vh - 92px); overflow:auto;}
 .section{margin-bottom:14px}
@@ -424,7 +424,7 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
 
   /* “Logo” do Workspace, estilo assinatura, só visual (sem mudar layout) */
   aside::before{
-    content:"Workspace";
+    content:"Workspace Plus";
     display:block;
     margin:6px 6px 0 6px;
     font-family:'Caveat', cursive;
@@ -436,8 +436,35 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
   }
 </style>
 
+<!-- Scrollbar temática, alinhada ao restante do app -->
+<style id="ws-scrollbar">
+  *{
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.22) #121824;
+  }
+  ::-webkit-scrollbar{
+    width:10px;
+    height:10px;
+  }
+  ::-webkit-scrollbar-track{
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)), #121824;
+    border:1px solid var(--stroke);
+    border-radius:12px;
+  }
+  ::-webkit-scrollbar-thumb{
+    background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+    border:1px solid var(--stroke);
+    border-radius:10px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover{
+    background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.10));
+  }
+</style>
+
 <!-- Casca principal igual ao Transmissor (sem alterar estrutura) -->
 <style id="ws-shell">
+
   /* container externo: mesma “caixa” do Transmissor (.cb-dialog) */
   .app-frame{
     width:min(1920px,92vw);
@@ -507,7 +534,7 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
         <a class="app-switcher__item" role="menuitem" href="LINK_DO_ANALISADOR" target="_blank" rel="noopener">
           <div><strong>Analisador</strong><small>Importa JSON e envia os grupos para avaliação</small></div>
         </a>
-        <a class="app-switcher__item" role="menuitem" href="https://hdspcorp.github.io/Conversor-Plus/" target="_blank" rel="noopener">
+        <a class="app-switcher__item" role="menuitem" href="LINK_DO_CONVERSOR" target="_blank" rel="noopener">
           <div><strong>Conversor</strong><small>Converte arquivos em TXT, ou gera packs</small></div>
         </a>
       </div>
@@ -1756,11 +1783,11 @@ function setDone(code, on){
   // Opcional: sobrescreva window.APP_LINKS antes deste script em cada app.
   (function(){
     const LINKS = Object.assign({
-      workspace:   'https://hdspcorp.github.io/Workspace-Plus/',
-      conversor:   'https://hdspcorp.github.io/Conversor-Plus/',
-      transmissor: 'https://hdspcorp.github.io/Transmissor-Plus/',
+      workspace:    'https://hdspcorp.github.io/Workspace-Plus/',
+      conversor:    'https://hdspcorp.github.io/Conversor-Plus/',
+      transmissor:  'https://hdspcorp.github.io/Transmissor-Plus/',
       ajuda:        'LINK_DA_AJUDA',
-      current:      'https://hdspcorp.github.io/Workspace-Plus/' // qual app marcar como ativo neste arquivo
+      current:      'workspace' // qual app marcar como ativo neste arquivo
     }, window.APP_LINKS || {});
 
     document.querySelectorAll('.side-nav .sn-btn').forEach(a=>{
@@ -1775,9 +1802,9 @@ function setDone(code, on){
   // ===== Side Nav – Links e Ajuda ancorada na barra =====
   (function(){
     const LINKS = Object.assign({
-      workspace:    'https://hdspcorp.github.io/Workspace-Plus/',
-      conversor:    'https://hdspcorp.github.io/Conversor-Plus/',
-      transmissor:  'https://hdspcorp.github.io/Transmissor-Plus/',
+      workspace:    'LINK_DO_WORKSPACE',
+      conversor:    'LINK_DO_CONVERSOR',
+      transmissor:  'LINK_DO_TRANSMISSOR',
       ajuda:        '#',
       current:      'workspace'
     }, window.APP_LINKS || {});
