@@ -547,6 +547,28 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
   .ray-overlay__title{ font-weight:800; margin:4px 0 12px; letter-spacing:.2px }
   .ray-overlay__actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:10px }
 </style>
+<style id="filters-modal-style">
+  /* Modal de Filtros (único ponto para todos os filtros) */
+  .filters-modal{ display:none; position:fixed; inset:0; z-index:1400; }
+  .filters-modal.open{ display:block; }
+  .filters-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); backdrop-filter: blur(2px); }
+  .filters-modal__panel{
+    position:relative; margin:8vh auto; width:min(92vw, 780px); max-height:min(80vh, 720px);
+    display:flex; flex-direction:column; border:1px solid var(--stroke); border-radius:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), var(--panel);
+    box-shadow:0 24px 48px rgba(0,0,0,.45); overflow:hidden;
+  }
+  .filters-modal__head{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--stroke); font-weight:800; letter-spacing:.2px; }
+  .filters-modal__body{ padding:12px; display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; overflow:auto; }
+  @media (max-width: 880px){ .filters-modal__body{ grid-template-columns:1fr; } }
+  .filters-modal__group{ border:1px solid var(--stroke); border-radius:10px; padding:10px; background:var(--panel-2); }
+  .filters-modal__group h3{ margin:0 0 8px; font-size:12px; font-weight:800; letter-spacing:.35px; color:var(--muted); text-transform:uppercase; }
+  .filters-modal__foot{ display:flex; justify-content:flex-end; gap:8px; padding:10px 14px; border-top:1px solid var(--stroke); }
+
+  /* Cards expansíveis (HOME) – só aparência */
+  .card.collapsed .block, .card.collapsed .eval{ display:none; }
+  .card.collapsed .client-id{ margin-top:0; }
+</style>
 </head>
 <body>
 
@@ -709,6 +731,7 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
       <div class="result-bar">
   <div class="count" id="resultCount">0 itens</div>
   <div class="result-actions">
+    <button id="openFiltersBtn"    class="btn primary" title="Abrir filtros">Filtros</button>
     <button id="btnFilterClient"   class="btn hidden" title="Selecionar um ou mais clientes">Filtrar por cliente</button>
     <button id="btnChart"          class="btn hidden">Exibir gráfico de assertividade</button>
   </div>
@@ -1203,7 +1226,7 @@ if (rayExp){
    window.GOOGLE_SHEET_RANGE = 'Clientes!A:C';
 */
 let CLIENTS_MAP = null; // cache Map<código, nome>
-const GOOGLE_SHEET_ID   = window.GOOGLE_SHEET_ID   || '';
+const GOOGLE_SHEET_ID   = window.GOOGLE_SHEET_ID   || '1JyckmObUPWGXy1-0jvBYWbPfQg6Owf6xjgG1Z2vWdZw';
 const GOOGLE_API_KEY    = window.GOOGLE_API_KEY    || '';
 const GOOGLE_SHEET_RANGE= window.GOOGLE_SHEET_RANGE|| 'Clientes!A:C'; // inclui unidade
 
@@ -1263,7 +1286,7 @@ function userIdHTML(uid){
             </div>`;
   }
 
-  const usuarioTxt = usuario ? ` &bull; Usuário: ${escapeHtml(usuario)}` : '';
+const usuarioTxt = usuario ? ` / Usuário: ${escapeHtml(usuario)}` : '';
   const isAlert = RED_ALERT.has(cliente) || RED_ALERT.has(normCode(cliente));
   const style   = isAlert ? ' style="color:#ff6b6b; font-weight:900"' : '';
 
@@ -1300,7 +1323,7 @@ async function loadClientMap(){
   // 1) Tentativa via Apps Script
   try{
     const url = (window.CLIENTS_API_URL ||
-      'https://script.google.com/macros/s/AKfycbxj4ioDcHkBEo-gmz7FufKQwtTFHfW0AkVvksa6WGpeCi1DtZJW9mzBFTvtjVY3rzBj/exec');
+      'https://script.google.com/macros/s/AKfycbxh_ZNXtxtE7W5UUCqX1mCcecpzGM3AEDzVaCxuhEiLVh10sf2wh7n-2lYAc8GwBjz7/exec');
     const resp = await fetch(url, { headers: { 'Accept':'application/json' }});
     if (!resp.ok) throw new Error('HTTP '+resp.status);
     const json = await resp.json();
@@ -1312,7 +1335,7 @@ async function loadClientMap(){
 
   // 2) Fallback direto na planilha, caso não haja unidades
   try{
-    const needUnits = CLIENTS_INFO.size === 0 || Array.from(CLIENTS_INFO.values()).every(v => !v || !v.unidade);
+const needUnits = CLIENTS_INFO.size === 0 || Array.from(CLIENTS_INFO.values()).some(v => !v || !v.unidade);
     if (needUnits && GOOGLE_SHEET_ID && GOOGLE_API_KEY){
       const url2 = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(GOOGLE_SHEET_ID)}/values/${encodeURIComponent(GOOGLE_SHEET_RANGE)}?key=${encodeURIComponent(GOOGLE_API_KEY)}`;
       const r2 = await fetch(url2, { headers: { 'Accept':'application/json' }});
@@ -1368,23 +1391,24 @@ async function populateClientNames(){
 
     const nameEl = el.querySelector('.client-name');
     if (nameEl && name && !nameEl.dataset.filled){
-      nameEl.textContent = ` — ${name}`;
+      nameEl.textContent = ` - ${name}`;
       nameEl.dataset.filled = '1';
     }
 
     // Unidade com rótulo, criando o span se não existir
-    let unitEl = el.querySelector('.client-unit');
-    if (!unitEl){
-      unitEl = document.createElement('span');
-      unitEl.className = 'client-unit';
-      if (nameEl) nameEl.insertAdjacentElement('afterend', unitEl);
-    }
-    if (unitEl && !unitEl.dataset.filled){
-      const info = CLIENTS_INFO ? (CLIENTS_INFO.get(raw) || CLIENTS_INFO.get(code)) : null;
-      const unit = info && info.unidade ? String(info.unidade).trim() : '';
-      unitEl.textContent = unit ? ` • Unidade: ${unit}` : '';
-      unitEl.dataset.filled = '1';
-    }
+let unitEl = el.querySelector('.client-unit');
+if (!unitEl){
+  unitEl = document.createElement('span');
+  unitEl.className = 'client-unit';
+  // insere ao final do bloco para ficar após " / Usuário"
+  el.appendChild(unitEl);
+}
+if (unitEl && !unitEl.dataset.filled){
+  const info = CLIENTS_INFO ? (CLIENTS_INFO.get(raw) || CLIENTS_INFO.get(code)) : null;
+  const unit = info && info.unidade ? String(info.unidade).trim() : '';
+  unitEl.textContent = unit ? ` / Unidade de Negócio: ${unit}` : '';
+  unitEl.dataset.filled = '1';
+}
   });
 }
 
@@ -2963,6 +2987,205 @@ function parseUserIdPart(uid){ const m = String(uid||'').trim().match(/^(\d+)\.(
     });
   }
 })();
+/* ===== Modal Único de Filtros + Cards expansíveis (HOME) ===== */
+(function(){
+  // Mantém o aside mais “clean”: esconde blocos de filtro já replicados no modal (HTML intacto)
+  function cleanAside(){
+    const secs = document.querySelectorAll('aside .section');
+    secs.forEach(sec=>{
+      const t = (sec.querySelector('h3')?.textContent||'').trim().toLowerCase();
+      if (['busca','busca específica','busca especifica','modo dos filtros','classificações'].includes(t)){
+        sec.classList.add('hidden');
+      }
+    });
+  }
+  cleanAside();
+
+  // Abre/fecha modal
+  function getModal(){ return document.getElementById('filtersModal'); }
+  function openFiltersModal(){
+    const m = getModal(); if (!m) return;
+
+    // Preenche campos com o estado atual
+    m.querySelector('#mSearch').value  = (window.SEARCH||'');
+    m.querySelector('#mSearchQ').value = (window.SEARCH_Q||'');
+    m.querySelector('#mSearchA').value = (window.SEARCH_A||'');
+    const mode = window.FILTER_MODE || 'items';
+    m.querySelectorAll('input[name="mFilterMode"]').forEach(r=> r.checked = (r.value===mode));
+
+    // Classificações a partir do DATA atual
+    const clsWrap = m.querySelector('#mClassifs'); clsWrap.innerHTML='';
+    const setCls = new Set();
+    (window.DATA||[]).forEach(r=>{
+      const c = String(r.classificacao || r.classificacao_final || r.classificacaoManual || '').trim();
+      if (c) setCls.add(c);
+    });
+    Array.from(setCls).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(val=>{
+      const id = 'mcls_'+val.replace(/\W+/g,'_');
+      const label = document.createElement('label');
+      label.className = 'filter-item';
+      label.innerHTML = `<input type="checkbox" id="${id}" value="${escapeHtml(val)}"><span>${escapeHtml(val)}</span>`;
+      clsWrap.appendChild(label);
+      const cb = label.querySelector('input');
+      cb.checked = window.FILTERS ? window.FILTERS.has(val) : false;
+    });
+
+    // Tópicos dinâmicos (HOME)
+    const topicSel = m.querySelector('#mTopic');
+    const topics = new Set();
+    (window.DATA||[]).forEach(r=>{
+      const raw = String(r.TOPICOS || r.topicos || '').trim();
+      if (!raw) return;
+      raw.split(/[;,|]/).map(s=>s.trim()).filter(Boolean).forEach(t=>topics.add(t));
+    });
+    const curTopic = window.TOPIC_FILTER || '';
+    topicSel.innerHTML = `<option value="">Todos os tópicos</option>` +
+      Array.from(topics).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    topicSel.value = curTopic;
+
+    // Unidades dinâmicas (da mesma planilha, já carregadas em CLIENTS_INFO)
+    const unitSel = m.querySelector('#mUnit');
+    const units = new Set();
+    if (window.CLIENTS_INFO){
+      (window.DATA||[]).forEach(r=>{
+        const code = normCode(String(r.codigo||'').trim());
+        const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
+        if (info && info.unidade) units.add(info.unidade);
+      });
+    }
+    const curUnit = window.UNIT_FILTER || '';
+    unitSel.innerHTML = `<option value="">Todas as unidades</option>` +
+      Array.from(units).sort().map(u=>`<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
+    unitSel.value = curUnit;
+
+    m.classList.add('open');
+  }
+  function closeFiltersModal(){ const m = getModal(); if (m) m.classList.remove('open'); }
+  function applyFiltersFromModal(){
+    const m = getModal(); if (!m) return;
+    window.SEARCH   = (m.querySelector('#mSearch')?.value||'').trim();
+    window.SEARCH_Q = (m.querySelector('#mSearchQ')?.value||'').trim();
+    window.SEARCH_A = (m.querySelector('#mSearchA')?.value||'').trim();
+    const mo = m.querySelector('input[name="mFilterMode"]:checked'); window.FILTER_MODE = mo ? mo.value : 'items';
+    // Classificações selecionadas
+    const s = new Set(); m.querySelectorAll('#mClassifs input[type="checkbox"]').forEach(cb=>{ if(cb.checked) s.add(cb.value); });
+    window.FILTERS = s;
+    // Tópico / Unidade
+    window.TOPIC_FILTER = m.querySelector('#mTopic')?.value || '';
+    window.UNIT_FILTER  = m.querySelector('#mUnit')?.value  || '';
+    // Re-render com as regras existentes
+    if (typeof render === 'function') render();
+  }
+  function clearFiltersFromModal(){
+    const m = getModal(); if (!m) return;
+    m.querySelector('#mSearch').value = '';
+    m.querySelector('#mSearchQ').value = '';
+    m.querySelector('#mSearchA').value = '';
+    m.querySelectorAll('#mClassifs input[type="checkbox"]').forEach(cb=> cb.checked = false);
+    m.querySelector('#mTopic').value = '';
+    m.querySelector('#mUnit').value = '';
+  }
+
+  // Abre/fecha/aplica via delegação (não quebra nada do app)
+  document.addEventListener('click', (e)=>{
+    if (e.target.id === 'openFiltersBtn'){ e.preventDefault(); openFiltersModal(); }
+    if (e.target.id === 'filtersCloseBtn'){ e.preventDefault(); closeFiltersModal(); }
+    if (e.target.id === 'filtersApplyBtn'){ e.preventDefault(); applyFiltersFromModal(); closeFiltersModal(); }
+    if (e.target.id === 'filtersClearBtn'){ e.preventDefault(); clearFiltersFromModal(); }
+    if (e.target.classList.contains('filters-modal__backdrop')){ closeFiltersModal(); }
+  }, true);
+
+  // Acrescenta Tópico/Unidade no pipeline de filtros, **sem tocar** na lógica já existente
+  if (typeof window.getFiltered === 'function' && !window.__getFilteredPatched){
+    window.__getFilteredPatched = true;
+    const _orig = window.getFiltered;
+    window.getFiltered = function(){
+      let rows = _orig ? _orig.apply(this, arguments) : (window.DATA||[]);
+      // Tópico
+      if (window.TOPIC_FILTER){
+        rows = rows.filter(r=>{
+          const raw = String(r.TOPICOS||r.topicos||'').trim();
+          return raw.split(/[;,|]/).map(s=>s.trim()).filter(Boolean).includes(window.TOPIC_FILTER);
+        });
+      }
+      // Unidade de Negócio
+      if (window.UNIT_FILTER && window.CLIENTS_INFO){
+        rows = rows.filter(r=>{
+          const code = normCode(String(r.codigo||'').trim());
+          const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
+          return info && info.unidade === window.UNIT_FILTER;
+        });
+      }
+      return rows;
+    };
+  }
+
+  // Cards expansíveis: click no cabeçalho alterna
+  const cardsEl = document.getElementById('cards');
+  if (cardsEl && !cardsEl.dataset.collapseHandler){
+    cardsEl.dataset.collapseHandler = '1';
+    cardsEl.addEventListener('click', (e)=>{
+      const head = e.target.closest('.card-head');
+      if (!head) return;
+      const card = head.closest('.card');
+      if (card) card.classList.toggle('collapsed');
+    });
+  }
+  // Colapsa por padrão na HOME, sem afetar ANÁLISE
+  if (typeof window.render === 'function' && !window.__renderPatched){
+    window.__renderPatched = true;
+    const _r = window.render;
+    window.render = function(){
+      const ret = _r.apply(this, arguments);
+      try{
+        if (window.__MODE === 'home'){
+          document.querySelectorAll('#cards .card:not([data-exp-inited])')
+            .forEach(c=>{ c.classList.add('collapsed'); c.dataset.expInited='1'; });
+        }
+      }catch{}
+      return ret;
+    };
+  }
+})();
 </script>
+<!-- Modal de Filtros (conteúdo é preenchido/atualizado via JS) -->
+<div id="filtersModal" class="filters-modal" role="dialog" aria-modal="true" aria-labelledby="filtersTitle">
+  <div class="filters-modal__backdrop"></div>
+  <div class="filters-modal__panel">
+    <div class="filters-modal__head">
+      <div id="filtersTitle">Filtros</div>
+      <button id="filtersCloseBtn" class="btn" type="button">Fechar</button>
+    </div>
+    <div class="filters-modal__body">
+      <div class="filters-modal__group">
+        <h3>Busca</h3>
+        <input type="text" id="mSearch"  placeholder="Pesquisar palavras" />
+        <input type="text" id="mSearchQ" placeholder="Filtrar em Perguntas" />
+        <input type="text" id="mSearchA" placeholder="Filtrar em Respostas" />
+      </div>
+      <div class="filters-modal__group">
+        <h3>Modo dos filtros</h3>
+        <label class="filter-item"><input type="radio" name="mFilterMode" value="items"> <span>Mostrar apenas as interações que atendem aos filtros</span></label>
+        <label class="filter-item"><input type="radio" name="mFilterMode" value="groups"> <span>Mostrar grupos das interações que atendem aos filtros</span></label>
+      </div>
+      <div class="filters-modal__group">
+        <h3>Classificações</h3>
+        <div id="mClassifs" class="filters"></div>
+      </div>
+      <div class="filters-modal__group">
+        <h3>Tópicos</h3>
+        <select id="mTopic"><option value="">Todos os tópicos</option></select>
+      </div>
+      <div class="filters-modal__group">
+        <h3>Unidade de Negócio</h3>
+        <select id="mUnit"><option value="">Todas as unidades</option></select>
+      </div>
+    </div>
+    <div class="filters-modal__foot">
+      <button id="filtersClearBtn" class="btn" type="button">Limpar</button>
+      <button id="filtersApplyBtn" class="btn primary" type="button">Aplicar filtros</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
