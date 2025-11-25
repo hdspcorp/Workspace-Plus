@@ -547,28 +547,6 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
   .ray-overlay__title{ font-weight:800; margin:4px 0 12px; letter-spacing:.2px }
   .ray-overlay__actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:10px }
 </style>
-<style id="filters-modal-style">
-  /* Modal de Filtros (único ponto para todos os filtros) */
-  .filters-modal{ display:none; position:fixed; inset:0; z-index:1400; }
-  .filters-modal.open{ display:block; }
-  .filters-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.55); backdrop-filter: blur(2px); }
-  .filters-modal__panel{
-    position:relative; margin:8vh auto; width:min(92vw, 780px); max-height:min(80vh, 720px);
-    display:flex; flex-direction:column; border:1px solid var(--stroke); border-radius:14px;
-    background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)), var(--panel);
-    box-shadow:0 24px 48px rgba(0,0,0,.45); overflow:hidden;
-  }
-  .filters-modal__head{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--stroke); font-weight:800; letter-spacing:.2px; }
-  .filters-modal__body{ padding:12px; display:grid; grid-template-columns:1fr 1fr; gap:12px; min-height:0; overflow:auto; }
-  @media (max-width: 880px){ .filters-modal__body{ grid-template-columns:1fr; } }
-  .filters-modal__group{ border:1px solid var(--stroke); border-radius:10px; padding:10px; background:var(--panel-2); }
-  .filters-modal__group h3{ margin:0 0 8px; font-size:12px; font-weight:800; letter-spacing:.35px; color:var(--muted); text-transform:uppercase; }
-  .filters-modal__foot{ display:flex; justify-content:flex-end; gap:8px; padding:10px 14px; border-top:1px solid var(--stroke); }
-
-  /* Cards expansíveis (HOME) – só aparência */
-  .card.collapsed .block, .card.collapsed .eval{ display:none; }
-  .card.collapsed .client-id{ margin-top:0; }
-</style>
 </head>
 <body>
 
@@ -675,24 +653,43 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
       </div>
     </div>
 
-    <div class="section">
-  <h3>Busca</h3>
-  <input type="text" id="searchBox" placeholder="Pesquisar palavras">
-</div>
+<div class="section" id="filtersUnifiedSection">
+  <h3>Filtros</h3>
+  <div class="filters-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <!-- Busca livre -->
+    <div class="control" style="grid-column:1 / -1;">
+      <input type="text" id="searchBox" placeholder="Pesquisar palavras">
+    </div>
 
-<!-- NOVO: busca específica -->
-<div class="section">
-  <h3>Busca específica</h3>
-  <div class="control">
-    <input type="text" id="searchQ" placeholder="Filtrar em Perguntas">
-    <input type="text" id="searchA" placeholder="Filtrar em Respostas">
+    <!-- Busca específica -->
+    <div class="control">
+      <input type="text" id="searchQ" placeholder="Filtrar em Perguntas">
+    </div>
+    <div class="control">
+      <input type="text" id="searchA" placeholder="Filtrar em Respostas">
+    </div>
 
-<!-- Botão de filtro por cliente agora mora neste card -->
-<button id="btnFilterClient" class="btn hidden">Filtrar por cliente</button>
-<button id="btnClearClients" class="btn hidden" title="Remover todos os filtros de cliente">Limpar filtro</button>
-<!-- A lista de clientes agora é exibida em um modal (HTML inserido no final do <body>) -->
+    <!-- Tópicos (dinâmico) -->
+    <div class="control">
+      <select id="topicFilter" title="Filtrar por tópico">
+        <option value="">Todos os tópicos</option>
+      </select>
+      <span class="small">Selecione para filtrar por tópico</span>
+    </div>
 
-    <span class="small"></span>
+    <!-- Unidade de Negócio (dinâmico) -->
+    <div class="control">
+      <select id="unitFilter" title="Filtrar por unidade de negócio">
+        <option value="">Todas as unidades</option>
+      </select>
+      <span class="small">O filtro afeta a preview</span>
+    </div>
+
+    <!-- Ações de cliente -->
+    <div class="control" style="grid-column:1 / -1;display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="btnFilterClient" class="btn hidden">Filtrar por cliente</button>
+      <button id="btnClearClients" class="btn hidden" title="Remover todos os filtros de cliente">Limpar filtro</button>
+    </div>
   </div>
 </div>
 
@@ -731,7 +728,6 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
       <div class="result-bar">
   <div class="count" id="resultCount">0 itens</div>
   <div class="result-actions">
-    <button id="openFiltersBtn"    class="btn primary" title="Abrir filtros">Filtros</button>
     <button id="btnFilterClient"   class="btn hidden" title="Selecionar um ou mais clientes">Filtrar por cliente</button>
     <button id="btnChart"          class="btn hidden">Exibir gráfico de assertividade</button>
   </div>
@@ -824,7 +820,22 @@ const overlayExportBtn = document.getElementById('rayOverlayExportBtn');
 let UNIT_FILTER = '';                      // '' = todas
 let CLIENTS_INFO = null;                   // Map(code|norm) -> { name, unidade }
 function ensureUnitFilterUI(){
-  // cria (uma vez) um seletor de unidade no <aside>, visível só na Análise
+  // Se o select já existe no card "Filtros", apenas vincula o evento.
+  const existing = document.getElementById('unitFilter');
+  if (existing){
+    if (!existing.dataset.bound){
+      existing.addEventListener('change', ()=>{
+        UNIT_FILTER = existing.value || '';
+        if (__MODE === 'analysis' && __RAY_READY){
+          if (typeof triggerAnalysisPreview === 'function') triggerAnalysisPreview();
+        }
+        if (typeof render === 'function') render(); // também aplica na HOME
+      });
+      existing.dataset.bound = '1';
+    }
+    return;
+  }
+  // Fallback (comportamento anterior): cria a seção separada
   if (document.getElementById('unitFilterSection')) return;
   const aside = document.querySelector('aside');
   if (!aside) return;
@@ -843,39 +854,58 @@ function ensureUnitFilterUI(){
   const sel = sect.querySelector('#unitFilter');
   sel.addEventListener('change', ()=>{
     UNIT_FILTER = sel.value || '';
-    // se já temos dados carregados na Análise, re-renderiza a partir das regras da Análise
     if (__MODE === 'analysis' && __RAY_READY){
-      // atualiza preview conforme filtro
       if (typeof triggerAnalysisPreview === 'function') triggerAnalysisPreview();
     }
+    if (typeof render === 'function') render();
   });
 }
-function refreshUnitFilterOptions(){
-  const sel = document.getElementById('unitFilter'); if (!sel || !CLIENTS_INFO) return;
+
+async function refreshUnitFilterOptions(){
+  const sel = document.getElementById('unitFilter'); if (!sel) return;
+
+  // 1) Garante que o mapa de clientes está carregado
+  try{
+    if (!window.CLIENTS_INFO || !(CLIENTS_INFO instanceof Map) || CLIENTS_INFO.size === 0){
+      if (typeof loadClientMap === 'function'){ await loadClientMap(); }
+    }
+  }catch(e){ /* silencioso */ }
+  if (!window.CLIENTS_INFO) return;
+
+  // 2) Coleta unidades a partir dos códigos visíveis OU, se vazio, de todo CLIENTS_INFO
   const units = new Set();
 
-  // Códigos visíveis conforme contexto:
-  // - ANÁLISE: usa __RAY_ROWS
-  // - HOME: coleta dos cartões/itens renderizados no DOM
+  // Fontes de códigos visíveis (ordem de prioridade)
   let codes = new Set();
   if (Array.isArray(__RAY_ROWS) && __RAY_ROWS.length){
-    codes = new Set(__RAY_ROWS.map(r => normCode((r.codigo || parseUserId(r.user_id||'').cliente || '').trim())));
+    codes = new Set(__RAY_ROWS.map(r => normCode(String(r.codigo || parseUserId(r.user_id||'').cliente || '').trim())));
+  } else if (Array.isArray(window.DATA) && window.DATA.length){
+    codes = new Set(window.DATA.map(r => normCode(String(r.codigo||'').trim())));
   } else {
     codes = new Set(Array.from(document.querySelectorAll('.client-id'))
-      .map(el => normCode((el.dataset.clientCode || el.textContent || '').trim())));
+      .map(el => normCode(String((el.dataset.clientCode || el.textContent || '')).trim())));
   }
 
+  // Unidades vindas dos códigos visíveis
   for (const code of codes){
     if (!code) continue;
     const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
-    if (info && info.unidade) units.add(info.unidade);
+    if (info && info.unidade) units.add(String(info.unidade));
+  }
+
+  // Fallback: se nada encontrado (por ex., antes do primeiro render), usa TODAS as unidades conhecidas
+  if (units.size === 0){
+    for (const [,info] of CLIENTS_INFO.entries()){
+      if (info?.unidade) units.add(String(info.unidade));
+    }
   }
 
   const cur = sel.value;
   sel.innerHTML = `<option value="">Todas as unidades</option>` +
-    Array.from(units).sort().map(u => `<option value="${u}">${u}</option>`).join('');
+    Array.from(units).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(u => `<option value="${u}">${u}</option>`).join('');
   sel.value = (cur && units.has(cur)) ? cur : '';
 }
+
 // sempre visível (HOME e ANÁLISE)
 function toggleUnitFilterUI(){
   const sec = document.getElementById('unitFilterSection');
@@ -885,6 +915,19 @@ function toggleUnitFilterUI(){
 
 /* ====== Filtro por Tópicos (HOME) ====== */
 function ensureTopicFilterUI(){
+  // Se o select já existe no card "Filtros", apenas vincula o evento.
+  const existing = document.getElementById('topicFilter');
+  if (existing){
+    if (!existing.dataset.bound){
+      existing.addEventListener('change', ()=>{
+        window.TOPIC_FILTER = existing.value || '';
+        if (typeof render === 'function') render();
+      });
+      existing.dataset.bound = '1';
+    }
+    return;
+  }
+  // Fallback (comportamento anterior): cria a seção separada
   const aside = document.querySelector('aside'); if (!aside) return;
   if (document.getElementById('topicFilterSection')) return;
   const sect = document.createElement('div');
@@ -904,17 +947,25 @@ function ensureTopicFilterUI(){
     render();
   });
 }
+
 function refreshTopicFilterOptions(){
   const sel = document.getElementById('topicFilter'); if (!sel) return;
   const set = new Set();
-  // Prioriza a HOME: os dados são os itens renderizados/parseados
+
+  // HOME: coleta dos dados parseados (mais confiável que varrer DOM)
   if (Array.isArray(window.DATA) && window.DATA.length){
     for (const r of window.DATA){
+      // Suporta string "TOPICOS/topicos" e também array "topics"
       const raw = String(r.TOPICOS || r.topicos || '').trim();
-      if (!raw) continue;
-      raw.split(/[;,|]/).map(s=>s.trim()).filter(Boolean).forEach(t=> set.add(t));
+      if (raw){
+        raw.split(/[;|]/).map(s=>s.trim()).filter(Boolean).forEach(t=> set.add(t));
+      }
+      if (Array.isArray(r.topics) && r.topics.length){
+        r.topics.map(String).map(s=>s.trim()).filter(Boolean).forEach(t=> set.add(t));
+      }
     }
   }
+
   const cur = sel.value;
   sel.innerHTML = `<option value="">Todos os tópicos</option>` +
     Array.from(set).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(t=>`<option value="${t}">${t}</option>`).join('');
@@ -1119,19 +1170,20 @@ if (rayExp){
     const map = (typeof loadClientMap==='function') ? await loadClientMap() : null;
     const INTERNAL = (typeof INTERNAL_LICENSE_CODES!=='undefined' && INTERNAL_LICENSE_CODES) ? INTERNAL_LICENSE_CODES : new Set();
 
-    // Conta interações VÁLIDAS por código de cliente e guarda 1ª/última hora
-    // Regra: role 'user' seguido de 'assistant' com "score" e createdAt(user)-3h dentro do período
-    const counts = new Map();                 // codigo -> qtd
-    const firstTime = new Map();              // codigo -> ms(UTC) já -3h
-    const lastTime  = new Map();              // codigo -> ms(UTC) já -3h
+    // === Regra oficial de interação ===
+    // Contar SOMENTE quando existir um par (user -> assistant IMEDIATO) e o assistant tiver "score".
+    // Também só vale se createdAt(user) -3h estiver dentro [sd..ed].
+    const counts = new Map();    // codigo -> qtd
+    const firstTime = new Map(); // codigo -> ms(-3h)
+    const lastTime  = new Map(); // codigo -> ms(-3h)
     const clientsTouched = new Set();
-    const convs = (__RAY_DATA.conversations || []).filter(Boolean);
 
+    const convs = (__RAY_DATA.conversations || []).filter(Boolean);
     for (const conv of convs){
       const uidConv  = String(conv.user_id || '');
       const codeConv = normCode((parseUserId(uidConv).cliente || '').trim());
 
-      // filtro por unidade (se houver)
+      // Filtro por unidade de negócio, se ativo
       if (UNIT_FILTER && CLIENTS_INFO){
         const info = CLIENTS_INFO.get(codeConv) || CLIENTS_INFO.get(normCode(codeConv));
         if (!info || info.unidade !== UNIT_FILTER) continue;
@@ -1139,48 +1191,36 @@ if (rayExp){
 
       const arr = Array.isArray(conv.messages) ? conv.messages : [];
       for (let i = 0; i < arr.length; i++){
-        const m = arr[i];
-        if ((m.role||'').toLowerCase() !== 'user') continue;
+        const mUser = arr[i];
+        if ((mUser.role||'').toLowerCase() !== 'user') continue;
 
-        // Janela de datas pelo createdAt do USER em UTC−3
-        const t = new Date(m.createdAt || m.timestamp || 0).getTime() - 3*60*60*1000;
-        if (isNaN(t) || t < sd || t > ed) continue;
+        const tUser = new Date(mUser.createdAt || mUser.timestamp || 0).getTime() - 3*60*60*1000;
+        if (isNaN(tUser) || tUser < sd || tUser > ed) continue;
 
-        // Exigir resposta subsequente do assistant com "score"
-        let hasReply = false;
-        for (let j = i+1; j < arr.length; j++){
-          const nx = arr[j];
-          const r  = (nx.role||'').toLowerCase();
-          if (r === 'user') break; // próxima pergunta: encerra busca da resposta
-          if (r === 'assistant'){
-            const hasScore = (nx.score != null) || (nx.content && /"score"\s*:/i.test(JSON.stringify(nx.content)));
-            if (hasScore){ hasReply = true; }
-            break;
-          }
-        }
-        if (!hasReply) continue;
+        const next = arr[i+1];
+        if (!next || (next.role||'').toLowerCase() !== 'assistant') continue;
+
+        const hasScore =
+          (next.score != null) ||
+          (next.evaluation && next.evaluation.score != null) ||
+          (typeof next.content === 'string' && /\"score\"\s*:/.test(next.content));
+        if (!hasScore) continue;
 
         const code = codeConv;
-        if (!code) continue;
-
-        counts.set(code, (counts.get(code)||0) + 1);
         clientsTouched.add(code);
+        counts.set(code, (counts.get(code)||0) + 1);
 
-        // Atualiza primeira/última hora por código (t já está em UTC com -3h aplicado)
-        const f0 = firstTime.get(code);
-        const l0 = lastTime.get(code);
-        if (f0 == null || t < f0) firstTime.set(code, t);
-        if (l0 == null || t > l0) lastTime.set(code, t);
+        if (!firstTime.has(code) || tUser < firstTime.get(code)) firstTime.set(code, tUser);
+        if (!lastTime.has(code)  || tUser > lastTime.get(code))  lastTime.set(code,  tUser);
       }
     }
 
     // Cabeçalho e dados
     const dateLabel = (startDateStr === endDateStr) ? startDateStr : (startDateStr + ' – ' + endDateStr);
-    const rows = [['Codigo','Cliente','Interacoes','Clientes Distintos','Data','Hora Primeira Interação','Hora da Última Interação']];
+    const rows = [['Codigo','Cliente','Unidade de Negócio','Interacoes','Data','Hora Primeira Interação','Hora da Última Interação','Clientes Distintos']];
 
     const hhmmss = (ms) => {
       const d = new Date(ms);
-      // ms já compensado (-3h), então usa UTC para obter HH:mm:ss “-3”
       const hh = String(d.getUTCHours()).padStart(2,'0');
       const mm = String(d.getUTCMinutes()).padStart(2,'0');
       const ss = String(d.getUTCSeconds()).padStart(2,'0');
@@ -1197,22 +1237,22 @@ if (rayExp){
 
         const f = firstTime.get(code);
         const l = lastTime.get(code);
-        const unit = info && info.unidade ? ` · ${info.unidade}` : '';
+        const unit = info && info.unidade ? String(info.unidade) : '';
         rows.push([
           code,
-          name + unit,
+          name,
+          unit,
           String(qty),
-          first ? String(clientsTouched.size) : '',
           dateLabel,
           f != null ? hhmmss(f) : '',
-          l != null ? hhmmss(l) : ''
+          l != null ? hhmmss(l) : '',
+          first ? String(clientsTouched.size) : ''
         ]);
         first = false;
       });
 
     if (rows.length === 1){ alert('Nenhuma interação válida no período/filtros.'); return; }
 
-    // Gera CSV com ; (como nos outros relatórios)
     const csv = rows.map(r => r.map(v => (String(v||'').includes(';') ? `"${String(v).replace(/"/g,'""')}"` : String(v))).join(';')).join('\n');
     const fname = `ray_export_${startDateStr.replace(/-/g,'')}_${endDateStr.replace(/-/g,'')}.csv`;
     download(fname, csv);
@@ -2952,21 +2992,31 @@ function parseUserIdPart(uid){ const m = String(uid||'').trim().match(/^(\d+)\.(
         }
         const INTERNAL = (typeof INTERNAL_LICENSE_CODES !== 'undefined') ? INTERNAL_LICENSE_CODES : new Set();
 
-        // Monta CSV: A=código, B=nome, C=interações, D=clientes distintos (uma única vez), E=data (período)
-        const distinctCount = clientsTouched.size;
-        const dateLabel = (startDateStr === endDateStr) ? startDateStr : (startDateStr + ' – ' + endDateStr);
-        const rows = [['Codigo','Cliente','Interacoes','Clientes Distintos','Data','Hora']];
-        let first = true;
-        Array.from(counts.entries())
-          .sort(([a],[b]) => (String(a).localeCompare(String(b),'pt-BR')))
-          .forEach(([code, qty])=>{
-            const nc   = (typeof normCode === 'function') ? normCode(code) : code;
-            let name = '';
-            if (map){ name = map.get(code) || map.get(nc) || ''; }
-            if (nc && INTERNAL.has(nc)) name = 'Licença Interna';
-            rows.push([nc, name, String(qty), first ? String(distinctCount) : '', dateLabel, '']);
-            first = false;
-          });
+        // Monta CSV: inclui UNIDADE após Cliente e coloca "Clientes Distintos" por último
+const distinctCount = clientsTouched.size;
+const dateLabel = (startDateStr === endDateStr) ? startDateStr : (startDateStr + ' – ' + endDateStr);
+const rows = [['Codigo','Cliente','Unidade','Interacoes','Data','Hora','Clientes Distintos']];
+let first = true;
+Array.from(counts.entries())
+  .sort(([a],[b]) => (String(a).localeCompare(String(b),'pt-BR')))
+  .forEach(([code, qty])=>{
+    const nc   = (typeof normCode === 'function') ? normCode(code) : code;
+    let name = '';
+    if (map){ name = map.get(code) || map.get(nc) || ''; }
+    if (nc && INTERNAL.has(nc)) name = 'Licença Interna';
+
+    // Unidade a partir do CLIENTS_INFO
+    let unidade = '';
+    try{
+      if (typeof CLIENTS_INFO !== 'undefined' && CLIENTS_INFO){
+        const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(nc);
+        if (info && info.unidade) unidade = info.unidade;
+      }
+    }catch(e){}
+
+    rows.push([nc, name, unidade, String(qty), dateLabel, '', first ? String(distinctCount) : '']);
+    first = false;
+  });
 
         const csv = '\uFEFF' + rows.map(r => r.map(v => {
           const s = String(v ?? '');
@@ -2987,205 +3037,21 @@ function parseUserIdPart(uid){ const m = String(uid||'').trim().match(/^(\d+)\.(
     });
   }
 })();
-/* ===== Modal Único de Filtros + Cards expansíveis (HOME) ===== */
+/* --- Atualiza opções de Tópicos e Unidades após cada render --- */
 (function(){
-  // Mantém o aside mais “clean”: esconde blocos de filtro já replicados no modal (HTML intacto)
-  function cleanAside(){
-    const secs = document.querySelectorAll('aside .section');
-    secs.forEach(sec=>{
-      const t = (sec.querySelector('h3')?.textContent||'').trim().toLowerCase();
-      if (['busca','busca específica','busca especifica','modo dos filtros','classificações'].includes(t)){
-        sec.classList.add('hidden');
-      }
-    });
-  }
-  cleanAside();
-
-  // Abre/fecha modal
-  function getModal(){ return document.getElementById('filtersModal'); }
-  function openFiltersModal(){
-    const m = getModal(); if (!m) return;
-
-    // Preenche campos com o estado atual
-    m.querySelector('#mSearch').value  = (window.SEARCH||'');
-    m.querySelector('#mSearchQ').value = (window.SEARCH_Q||'');
-    m.querySelector('#mSearchA').value = (window.SEARCH_A||'');
-    const mode = window.FILTER_MODE || 'items';
-    m.querySelectorAll('input[name="mFilterMode"]').forEach(r=> r.checked = (r.value===mode));
-
-    // Classificações a partir do DATA atual
-    const clsWrap = m.querySelector('#mClassifs'); clsWrap.innerHTML='';
-    const setCls = new Set();
-    (window.DATA||[]).forEach(r=>{
-      const c = String(r.classificacao || r.classificacao_final || r.classificacaoManual || '').trim();
-      if (c) setCls.add(c);
-    });
-    Array.from(setCls).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(val=>{
-      const id = 'mcls_'+val.replace(/\W+/g,'_');
-      const label = document.createElement('label');
-      label.className = 'filter-item';
-      label.innerHTML = `<input type="checkbox" id="${id}" value="${escapeHtml(val)}"><span>${escapeHtml(val)}</span>`;
-      clsWrap.appendChild(label);
-      const cb = label.querySelector('input');
-      cb.checked = window.FILTERS ? window.FILTERS.has(val) : false;
-    });
-
-    // Tópicos dinâmicos (HOME)
-    const topicSel = m.querySelector('#mTopic');
-    const topics = new Set();
-    (window.DATA||[]).forEach(r=>{
-      const raw = String(r.TOPICOS || r.topicos || '').trim();
-      if (!raw) return;
-      raw.split(/[;,|]/).map(s=>s.trim()).filter(Boolean).forEach(t=>topics.add(t));
-    });
-    const curTopic = window.TOPIC_FILTER || '';
-    topicSel.innerHTML = `<option value="">Todos os tópicos</option>` +
-      Array.from(topics).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    topicSel.value = curTopic;
-
-    // Unidades dinâmicas (da mesma planilha, já carregadas em CLIENTS_INFO)
-    const unitSel = m.querySelector('#mUnit');
-    const units = new Set();
-    if (window.CLIENTS_INFO){
-      (window.DATA||[]).forEach(r=>{
-        const code = normCode(String(r.codigo||'').trim());
-        const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
-        if (info && info.unidade) units.add(info.unidade);
-      });
-    }
-    const curUnit = window.UNIT_FILTER || '';
-    unitSel.innerHTML = `<option value="">Todas as unidades</option>` +
-      Array.from(units).sort().map(u=>`<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
-    unitSel.value = curUnit;
-
-    m.classList.add('open');
-  }
-  function closeFiltersModal(){ const m = getModal(); if (m) m.classList.remove('open'); }
-  function applyFiltersFromModal(){
-    const m = getModal(); if (!m) return;
-    window.SEARCH   = (m.querySelector('#mSearch')?.value||'').trim();
-    window.SEARCH_Q = (m.querySelector('#mSearchQ')?.value||'').trim();
-    window.SEARCH_A = (m.querySelector('#mSearchA')?.value||'').trim();
-    const mo = m.querySelector('input[name="mFilterMode"]:checked'); window.FILTER_MODE = mo ? mo.value : 'items';
-    // Classificações selecionadas
-    const s = new Set(); m.querySelectorAll('#mClassifs input[type="checkbox"]').forEach(cb=>{ if(cb.checked) s.add(cb.value); });
-    window.FILTERS = s;
-    // Tópico / Unidade
-    window.TOPIC_FILTER = m.querySelector('#mTopic')?.value || '';
-    window.UNIT_FILTER  = m.querySelector('#mUnit')?.value  || '';
-    // Re-render com as regras existentes
-    if (typeof render === 'function') render();
-  }
-  function clearFiltersFromModal(){
-    const m = getModal(); if (!m) return;
-    m.querySelector('#mSearch').value = '';
-    m.querySelector('#mSearchQ').value = '';
-    m.querySelector('#mSearchA').value = '';
-    m.querySelectorAll('#mClassifs input[type="checkbox"]').forEach(cb=> cb.checked = false);
-    m.querySelector('#mTopic').value = '';
-    m.querySelector('#mUnit').value = '';
-  }
-
-  // Abre/fecha/aplica via delegação (não quebra nada do app)
-  document.addEventListener('click', (e)=>{
-    if (e.target.id === 'openFiltersBtn'){ e.preventDefault(); openFiltersModal(); }
-    if (e.target.id === 'filtersCloseBtn'){ e.preventDefault(); closeFiltersModal(); }
-    if (e.target.id === 'filtersApplyBtn'){ e.preventDefault(); applyFiltersFromModal(); closeFiltersModal(); }
-    if (e.target.id === 'filtersClearBtn'){ e.preventDefault(); clearFiltersFromModal(); }
-    if (e.target.classList.contains('filters-modal__backdrop')){ closeFiltersModal(); }
-  }, true);
-
-  // Acrescenta Tópico/Unidade no pipeline de filtros, **sem tocar** na lógica já existente
-  if (typeof window.getFiltered === 'function' && !window.__getFilteredPatched){
-    window.__getFilteredPatched = true;
-    const _orig = window.getFiltered;
-    window.getFiltered = function(){
-      let rows = _orig ? _orig.apply(this, arguments) : (window.DATA||[]);
-      // Tópico
-      if (window.TOPIC_FILTER){
-        rows = rows.filter(r=>{
-          const raw = String(r.TOPICOS||r.topicos||'').trim();
-          return raw.split(/[;,|]/).map(s=>s.trim()).filter(Boolean).includes(window.TOPIC_FILTER);
-        });
-      }
-      // Unidade de Negócio
-      if (window.UNIT_FILTER && window.CLIENTS_INFO){
-        rows = rows.filter(r=>{
-          const code = normCode(String(r.codigo||'').trim());
-          const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
-          return info && info.unidade === window.UNIT_FILTER;
-        });
-      }
-      return rows;
-    };
-  }
-
-  // Cards expansíveis: click no cabeçalho alterna
-  const cardsEl = document.getElementById('cards');
-  if (cardsEl && !cardsEl.dataset.collapseHandler){
-    cardsEl.dataset.collapseHandler = '1';
-    cardsEl.addEventListener('click', (e)=>{
-      const head = e.target.closest('.card-head');
-      if (!head) return;
-      const card = head.closest('.card');
-      if (card) card.classList.toggle('collapsed');
-    });
-  }
-  // Colapsa por padrão na HOME, sem afetar ANÁLISE
-  if (typeof window.render === 'function' && !window.__renderPatched){
-    window.__renderPatched = true;
-    const _r = window.render;
+  if (typeof window.render === 'function' && !window.__renderPatchedFilters){
+    window.__renderPatchedFilters = true;
+    const _render = window.render;
     window.render = function(){
-      const ret = _r.apply(this, arguments);
+      const out = _render.apply(this, arguments);
       try{
-        if (window.__MODE === 'home'){
-          document.querySelectorAll('#cards .card:not([data-exp-inited])')
-            .forEach(c=>{ c.classList.add('collapsed'); c.dataset.expInited='1'; });
-        }
-      }catch{}
-      return ret;
+        if (typeof refreshTopicFilterOptions === 'function') refreshTopicFilterOptions();
+        if (typeof refreshUnitFilterOptions  === 'function') refreshUnitFilterOptions();
+      }catch(e){}
+      return out;
     };
   }
 })();
 </script>
-<!-- Modal de Filtros (conteúdo é preenchido/atualizado via JS) -->
-<div id="filtersModal" class="filters-modal" role="dialog" aria-modal="true" aria-labelledby="filtersTitle">
-  <div class="filters-modal__backdrop"></div>
-  <div class="filters-modal__panel">
-    <div class="filters-modal__head">
-      <div id="filtersTitle">Filtros</div>
-      <button id="filtersCloseBtn" class="btn" type="button">Fechar</button>
-    </div>
-    <div class="filters-modal__body">
-      <div class="filters-modal__group">
-        <h3>Busca</h3>
-        <input type="text" id="mSearch"  placeholder="Pesquisar palavras" />
-        <input type="text" id="mSearchQ" placeholder="Filtrar em Perguntas" />
-        <input type="text" id="mSearchA" placeholder="Filtrar em Respostas" />
-      </div>
-      <div class="filters-modal__group">
-        <h3>Modo dos filtros</h3>
-        <label class="filter-item"><input type="radio" name="mFilterMode" value="items"> <span>Mostrar apenas as interações que atendem aos filtros</span></label>
-        <label class="filter-item"><input type="radio" name="mFilterMode" value="groups"> <span>Mostrar grupos das interações que atendem aos filtros</span></label>
-      </div>
-      <div class="filters-modal__group">
-        <h3>Classificações</h3>
-        <div id="mClassifs" class="filters"></div>
-      </div>
-      <div class="filters-modal__group">
-        <h3>Tópicos</h3>
-        <select id="mTopic"><option value="">Todos os tópicos</option></select>
-      </div>
-      <div class="filters-modal__group">
-        <h3>Unidade de Negócio</h3>
-        <select id="mUnit"><option value="">Todas as unidades</option></select>
-      </div>
-    </div>
-    <div class="filters-modal__foot">
-      <button id="filtersClearBtn" class="btn" type="button">Limpar</button>
-      <button id="filtersApplyBtn" class="btn primary" type="button">Aplicar filtros</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>
