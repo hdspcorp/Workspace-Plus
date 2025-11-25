@@ -746,18 +746,18 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
 
     <section id="resultsPanel" class="panel" style="margin-top:12px;">
       <div class="cards" id="cards"></div>
+    </section>
 
-      <!-- Overlay para a aba Análise -->
-      <div id="rayOverlay" class="ray-overlay hidden">
-        <div class="ray-overlay__box">
-          <div id="rayOverlayMsg" class="ray-overlay__title">Aguarde, Carregando dados...</div>
-          <div id="rayOverlayActions" class="ray-overlay__actions hidden">
-            <button id="rayShowPreviewBtn" class="btn">Exibir Perguntas e respostas na tela</button>
-            <button id="rayOverlayExportBtn" class="btn primary">Exportar CSV RAY</button>
-          </div>
+    <!-- Overlay global (fora dos painéis, visível na HOME e na ANÁLISE) -->
+    <div id="rayOverlay" class="ray-overlay hidden">
+      <div class="ray-overlay__box">
+        <div id="rayOverlayMsg" class="ray-overlay__title">Aguarde, Carregando dados.</div>
+        <div id="rayOverlayActions" class="ray-overlay__actions hidden">
+          <button id="rayShowPreviewBtn" class="btn">Exibir Perguntas e respostas na tela</button>
+          <button id="rayOverlayExportBtn" class="btn primary">Exportar CSV RAY</button>
         </div>
       </div>
-    </section>
+    </div>
   <!-- Painel principal existente -->
 </main>
 
@@ -1122,6 +1122,11 @@ if (rayInp){
   rayInp.addEventListener('change', async ()=>{
     const f = rayInp.files?.[0];
     __RAY_DATA = null; __RAY_ROWS = []; __RAY_READY = false;
+    // feedback visual do arquivo selecionado
+    (function(){
+      const nameEl = document.getElementById('rayFileName');
+      if (nameEl) nameEl.textContent = f ? f.name : 'Nenhum arquivo selecionado';
+    })();
     if (!f){ hideOverlay(); swapExportBtn(true); return; }
     showOverlayLoading();
     try{
@@ -1162,7 +1167,7 @@ if (rayExp){
     const startDateStr = String(__RAY_DATA.startDateStr||'').trim();
     const endDateStr   = String(__RAY_DATA.endDateStr||'').trim();
 
-    // Limites no fuso −03:00
+    // Limites no fuso −03:00 (IMPORTAÇÃO SEMPRE PERMITIDA; FILTRAGEM SÓ NO CSV)
     const sd = new Date(`${startDateStr}T00:00:00-03:00`).getTime();
     const ed = new Date(`${endDateStr}T23:59:59-03:00`).getTime();
 
@@ -1170,23 +1175,40 @@ if (rayExp){
     const map = (typeof loadClientMap==='function') ? await loadClientMap() : null;
     const INTERNAL = (typeof INTERNAL_LICENSE_CODES!=='undefined' && INTERNAL_LICENSE_CODES) ? INTERNAL_LICENSE_CODES : new Set();
 
-    // === Regra oficial de interação ===
-    // Contar SOMENTE quando existir um par (user -> assistant IMEDIATO) e o assistant tiver "score".
-    // Também só vale se createdAt(user) -3h estiver dentro [sd..ed].
-    const counts = new Map();    // codigo -> qtd
-    const firstTime = new Map(); // codigo -> ms(-3h)
-    const lastTime  = new Map(); // codigo -> ms(-3h)
-    const clientsTouched = new Set();
+    // === Regra oficial de interação (mantida) ===
+    // Contar SOMENTE quando existir par (user -> assistant IMEDIATO) e o assistant tiver "score".
+    // Também só vale se createdAt(user) -3h ∈ [sd..ed].
+    const counts       = new Map(); // key -> qtd de interações (par user→assistant com score)
+    const customClicks = new Map(); // key -> qtd de cliques em botão customizado
+    const firstTime    = new Map(); // key -> ms(-3h)
+    const lastTime     = new Map(); // key -> ms(-3h)
+
+    // Distintos por tipo
+    const identifiedCodes   = new Set(); // códigos reais
+    const unidentifiedCodes = new Set(); // chaves sintéticas p/ NI
+
+    // Chaves para "não identificado"
+    const UNID_PREFIX = '__NI__';
+    let niSeq = 1; // contador local p/ rotular NI quando não existir id da conversa
 
     const convs = (__RAY_DATA.conversations || []).filter(Boolean);
     for (const conv of convs){
       const uidConv  = String(conv.user_id || '');
       const codeConv = normCode((parseUserId(uidConv).cliente || '').trim());
 
-      // Filtro por unidade de negócio, se ativo
+      // Filtro por unidade de negócio, se ativo (não há unidade para NI)
       if (UNIT_FILTER && CLIENTS_INFO){
         const info = CLIENTS_INFO.get(codeConv) || CLIENTS_INFO.get(normCode(codeConv));
         if (!info || info.unidade !== UNIT_FILTER) continue;
+      }
+
+      // Define a chave de agrupamento:
+      // - Identificados: o próprio código
+      // - Não identificados: chave sintética estável por conversa (id/uuid) ou sequencial
+      let keyBase = codeConv;
+      if (!keyBase){
+        const convId = String(conv.id || conv.conversation_id || conv.uuid || conv.sessionId || '');
+        keyBase = UNID_PREFIX + (convId || String(niSeq++));
       }
 
       const arr = Array.isArray(conv.messages) ? conv.messages : [];
@@ -1197,8 +1219,20 @@ if (rayExp){
         const tUser = new Date(mUser.createdAt || mUser.timestamp || 0).getTime() - 3*60*60*1000;
         if (isNaN(tUser) || tUser < sd || tUser > ed) continue;
 
-        const next = arr[i+1];
-        if (!next || (next.role||'').toLowerCase() !== 'assistant') continue;
+        // Varre até o próximo 'user' para (a) detectar botão customizado e (b) achar o assistant imediato
+        let next = null;
+        let hadCustom = false;
+        for (let j = i+1; j < arr.length; j++){
+          const a = arr[j]; const r = (a?.role||'').toLowerCase();
+          if (r === 'user') break; // fim da janela desta interação
+          if (r === 'tool' && String(a.actionType||'').toLowerCase() === 'custom-button'){ hadCustom = true; }
+          if (r === 'assistant'){ next = a; break; }
+        }
+        // Conta clique em botão customizado (não soma em 'Interacoes' para evitar dupla contagem)
+        if (hadCustom){
+          customClicks.set(keyBase, (customClicks.get(keyBase)||0) + 1);
+        }
+        if (!next) continue;
 
         const hasScore =
           (next.score != null) ||
@@ -1206,18 +1240,36 @@ if (rayExp){
           (typeof next.content === 'string' && /\"score\"\s*:/.test(next.content));
         if (!hasScore) continue;
 
-        const code = codeConv;
-        clientsTouched.add(code);
-        counts.set(code, (counts.get(code)||0) + 1);
+        const codeKey = keyBase;
+        counts.set(codeKey, (counts.get(codeKey)||0) + 1);
 
-        if (!firstTime.has(code) || tUser < firstTime.get(code)) firstTime.set(code, tUser);
-        if (!lastTime.has(code)  || tUser > lastTime.get(code))  lastTime.set(code,  tUser);
+        if (!firstTime.has(codeKey) || tUser < firstTime.get(codeKey)) firstTime.set(codeKey, tUser);
+        if (!lastTime.has(codeKey)  || tUser > lastTime.get(codeKey))  lastTime.set(codeKey,  tUser);
+
+        // marca tipo do cliente para totalizadores
+        if (String(codeKey).startsWith(UNID_PREFIX)) {
+          unidentifiedCodes.add(codeKey);
+        } else {
+          identifiedCodes.add(codeKey);
+        }
       }
     }
 
-    // Cabeçalho e dados
+    // Cabeçalho e dados (substitui “CLIENTES DISTINTOS” por dois totalizadores)
     const dateLabel = (startDateStr === endDateStr) ? startDateStr : (startDateStr + ' – ' + endDateStr);
-    const rows = [['Codigo','Cliente','Unidade de Negócio','Interacoes','Data','Hora Primeira Interação','Hora da Última Interação','Clientes Distintos']];
+    const rows = [[
+      'Codigo',
+      'Cliente',
+      'Unidade de Negócio',
+      'Interacoes',
+      'Cliques Botão Customizado',
+      'Data',
+      'Hora Primeira Interação',
+      'Hora da Última Interação',
+      'Clientes Distintos Identificados',
+      'Clientes Não Identificados'
+    ]];
+
 
     const hhmmss = (ms) => {
       const d = new Date(ms);
@@ -1227,26 +1279,43 @@ if (rayExp){
       return `${hh}:${mm}:${ss}`;
     };
 
+    // Geração das linhas — mantém ordenação por chave
     let first = true;
     Array.from(counts.entries())
       .sort(([a],[b]) => String(a).localeCompare(String(b),'pt-BR'))
-      .forEach(([code, qty])=>{
-        const info = CLIENTS_INFO ? (CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code))) : null;
-        let name = info?.name || (map ? (map.get(code) || map.get(normCode(code)) || '') : '');
-        if (code && INTERNAL.has(code)) name = 'Licença Interna';
+      .forEach(([codeKey, qty])=>{
+        const isNI = String(codeKey).startsWith(UNID_PREFIX);
 
-        const f = firstTime.get(code);
-        const l = lastTime.get(code);
-        const unit = info && info.unidade ? String(info.unidade) : '';
+        // Info para identificados
+        const info = (!isNI && CLIENTS_INFO) ? (CLIENTS_INFO.get(codeKey) || CLIENTS_INFO.get(normCode(codeKey))) : null;
+        const unit = info?.unidade ? String(info.unidade) : '';
+
+        // Nome
+        let name;
+        if (isNI){
+          // tenta extrair número da chave; senão numera pela ordem
+          const suffix = String(codeKey).slice(UNID_PREFIX.length);
+          const n = (/^\d+$/.test(suffix)) ? Number(suffix) : (Array.from(unidentifiedCodes).indexOf(codeKey) + 1);
+          name = `Cliente não identificado ${n}`;
+        } else {
+          name = info?.name || (map ? (map.get(codeKey) || map.get(normCode(codeKey)) || '') : '');
+          if (codeKey && INTERNAL.has(codeKey)) name = 'Licença Interna';
+        }
+
+        const f = firstTime.get(codeKey);
+        const l = lastTime.get(codeKey);
+
         rows.push([
-          code,
+          isNI ? '' : codeKey,    // Código em branco para NI
           name,
           unit,
           String(qty),
+          String(customClicks.get(codeKey) || 0),
           dateLabel,
           f != null ? hhmmss(f) : '',
           l != null ? hhmmss(l) : '',
-          first ? String(clientsTouched.size) : ''
+          first ? String(identifiedCodes.size)   : '',
+          first ? String(unidentifiedCodes.size) : ''
         ]);
         first = false;
       });
@@ -1258,6 +1327,7 @@ if (rayExp){
     download(fname, csv);
   });
 }
+
 
 /* --- Integração Google Sheets (código → nome do cliente) --- */
 /* Preencha via variáveis globais (opcional) antes deste arquivo:
@@ -1636,8 +1706,14 @@ function parseJson(json){
 
       // 1b) Avaliações no assistant (mantém compatibilidade e anexa por código)
       if (role === 'assistant'){
-        const text = (msg.content || '').replace(/\r/g,'');
-        const blocks = splitAssistantBlocks(text); // sua função existente que quebra [INICIO_INTERACAO]...[FIM_INTERACAO]
+        // Só processa respostas de texto. tool-call / outros tipos não têm 'content' string.
+        const type = String(msg.type || '').toLowerCase();
+        const raw  = (typeof msg.content === 'string') ? msg.content : '';
+        if (type && type !== 'text') { continue; }
+        if (!raw) { continue; }
+
+        const text = raw.replace(/\r/g,'');
+        const blocks = splitAssistantBlocks(text); // sua função existente que quebra [INICIO_INTERACAO].[FIM_INTERACAO]
 
         for (const {code, text: body} of blocks){
           // garante o código
