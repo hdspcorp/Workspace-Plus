@@ -753,9 +753,8 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
       <div class="ray-overlay__box">
         <div id="rayOverlayMsg" class="ray-overlay__title">Aguarde, Carregando dados.</div>
         <div id="rayOverlayActions" class="ray-overlay__actions hidden">
-          <button id="rayShowPreviewBtn" class="btn">Exibir Perguntas e respostas na tela</button>
-          <button id="rayOverlayExportBtn" class="btn primary">Exportar CSV RAY</button>
-        </div>
+  <button id="rayOverlayExportBtn" class="btn primary">Exportar Relatório Ray</button>
+</div>
       </div>
     </div>
   <!-- Painel principal existente -->
@@ -772,7 +771,7 @@ aside{ top:18px !important; border-color:var(--stroke) !important; background:
         <button id="rayImportBtn" class="btn">Importar Arquivo RAY</button>
         <span id="rayFileName" class="small">Nenhum arquivo selecionado</span>
       </div>
-      <button id="rayExportCsvBtn" class="btn primary">Exportar CSV RAY</button>
+      <button id="rayExportCsvBtn" class="btn primary">Exportar Relatório Ray</button>
       <span class="small">O CSV considera apenas mensagens do cliente (role=user) cujo createdAt−3h esteja no período.</span>
     </div>
   </div>
@@ -864,36 +863,43 @@ function ensureUnitFilterUI(){
 async function refreshUnitFilterOptions(){
   const sel = document.getElementById('unitFilter'); if (!sel) return;
 
-  // 1) Garante que o mapa de clientes está carregado
+  // ➜ Só monta após importação do RAY e clientes carregados da planilha
+  if (!__RAY_READY || !__RAY_DATA) return;
+
   try{
-    if (!window.CLIENTS_INFO || !(CLIENTS_INFO instanceof Map) || CLIENTS_INFO.size === 0){
-      if (typeof loadClientMap === 'function'){ await loadClientMap(); }
+    if (!window.CLIENTS_INFO || !(window.CLIENTS_INFO instanceof Map) || window.CLIENTS_INFO.size === 0){
+      if (typeof loadClientMap==='function'){ await loadClientMap(); }
     }
   }catch(e){ /* silencioso */ }
-  if (!window.CLIENTS_INFO) return;
 
-  // 2) Coleta unidades a partir dos códigos visíveis OU, se vazio, de todo CLIENTS_INFO
+  if (!window.CLIENTS_INFO || !(window.CLIENTS_INFO instanceof Map) || window.CLIENTS_INFO.size === 0) return;
+
+  // sincroniza a referência local usada pelo restante do código
+  CLIENTS_INFO = window.CLIENTS_INFO;
+
+  // Coleta unidades a partir dos códigos do ARQUIVO IMPORTADO (RAY) + planilha
   const units = new Set();
-
-  // Fontes de códigos visíveis (ordem de prioridade)
   let codes = new Set();
+
   if (Array.isArray(__RAY_ROWS) && __RAY_ROWS.length){
+    // dados já parseados para a Análise
     codes = new Set(__RAY_ROWS.map(r => normCode(String(r.codigo || parseUserId(r.user_id||'').cliente || '').trim())));
-  } else if (Array.isArray(window.DATA) && window.DATA.length){
-    codes = new Set(window.DATA.map(r => normCode(String(r.codigo||'').trim())));
-  } else {
-    codes = new Set(Array.from(document.querySelectorAll('.client-id'))
-      .map(el => normCode(String((el.dataset.clientCode || el.textContent || '')).trim())));
+  } else if (Array.isArray(__RAY_DATA.conversations)){
+    // usa diretamente o arquivo importado
+    __RAY_DATA.conversations.forEach(conv=>{
+      const uid = String(conv.user_id||'');
+      const code = normCode(String((parseUserId(uid).cliente||'')).trim());
+      if (code) codes.add(code);
+    });
   }
 
-  // Unidades vindas dos códigos visíveis
+  // Mapeia códigos → unidades via planilha (CLIENTS_INFO)
   for (const code of codes){
-    if (!code) continue;
     const info = CLIENTS_INFO.get(code) || CLIENTS_INFO.get(normCode(code));
-    if (info && info.unidade) units.add(String(info.unidade));
+    if (info?.unidade) units.add(String(info.unidade));
   }
 
-  // Fallback: se nada encontrado (por ex., antes do primeiro render), usa TODAS as unidades conhecidas
+  // Se não houver unidades derivadas do arquivo, usa TODAS as da planilha (ainda depende da planilha)
   if (units.size === 0){
     for (const [,info] of CLIENTS_INFO.entries()){
       if (info?.unidade) units.add(String(info.unidade));
@@ -1035,7 +1041,7 @@ function modeHome(){
   swapExportBtn(false);
   hideOverlay();
   clearPreviewUI();
-  ensureUnitFilterUI(); toggleUnitFilterUI(); refreshUnitFilterOptions();
+  ensureUnitFilterUI(); toggleUnitFilterUI(); // construção só após importação do RAY
 }
 
 function modeAnal(){
@@ -2315,8 +2321,13 @@ $('#fileInput').addEventListener('change', async (ev)=>{
   render();
   // Carrega mapa de clientes e preenche nome + unidade na HOME
   if (typeof loadClientMap === 'function') { loadClientMap().then(()=>{ if (typeof populateClientNames==='function') populateClientNames(); }); }
-  // Garante filtros dinâmicos atualizados
+
+  // Monta e atualiza o filtro de Unidade de Negócio APÓS a importação da HOME
+  if (typeof ensureUnitFilterUI==='function') ensureUnitFilterUI();
+  if (typeof toggleUnitFilterUI==='function') toggleUnitFilterUI();
   if (typeof refreshUnitFilterOptions==='function') refreshUnitFilterOptions();
+
+  // Tópicos (HOME)
   if (typeof ensureTopicFilterUI==='function') ensureTopicFilterUI();
   if (typeof refreshTopicFilterOptions==='function') refreshTopicFilterOptions();
 
